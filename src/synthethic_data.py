@@ -1,5 +1,8 @@
 import pandas as pd
 from sdv.single_table import GaussianCopulaSynthesizer
+
+#TODO: attempt at normalizing the entire data set. Error. due to size??
+from sdv.single_table import ClusterBasedNormalizer
 from sdv.metadata import Metadata
 
 model_data = "test"
@@ -9,9 +12,10 @@ data = pd.read_csv(file)
 
 metadata = Metadata.detect_from_dataframe(data)
 
-synthesizer = GaussianCopulaSynthesizer(metadata)
+#synthesizer = GaussianCopulaSynthesizer(metadata)
+synthesizer = ClusterBasedNormalizer(metadata)
 synthesizer.fit(data)
-synthetic_data = synthesizer.sample(num_rows=100)
+synthetic_data = synthesizer.sample(num_rows=10)
 #metadata.save_to_json('metadata.json')
 
 # in the future, you can reload the metadata object from the file
