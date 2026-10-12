@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MSET input &amp; anomalies (3D) + SPRT fault detection</title>
+<style>
+  body{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;
+       margin:18px;color:#222;background:#fff;}
+  h1{font-size:16px;font-weight:600;margin:0 0 4px 0;}
+  .legend{font-size:12px;color:#555;margin-bottom:10px;}
+  .hint{font-size:11px;color:#888;margin-top:4px;}
+  .container{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;}
+  .left{flex:0 0 auto;}
+  .right{flex:0 0 260px;display:flex;flex-direction:column;gap:12px;}
+  canvas{border:1px solid #ddd;border-radius:6px;background:#fff;
+         display:block;cursor:grab;}
+  canvas:active{cursor:grabbing;}
+  #chartSprt{cursor:pointer;margin-top:12px;}
+  .box{border:1px solid #ccc;border-radius:6px;padding:10px 12px;font-size:13px;}
+  .box-title{font-weight:600;font-size:12px;color:#444;margin-bottom:6px;
+             text-transform:uppercase;letter-spacing:.02em;}
+  .box label{display:block;padding:2px 0;cursor:pointer;font-size:13px;}
+  #infoPanel{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;
+             white-space:pre-wrap;background:#f7f7f7;border:1px solid #ccc;
+             border-radius:6px;padding:10px;min-height:230px;line-height:1.45;}
+  #sprtTitle{font-size:13px;font-weight:600;margin:14px 0 4px 2px;}
+  input[type=range]{width:100%;}
+  .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;
+          margin-right:5px;vertical-align:middle;}
+</style>
+</head>
+<body>
+<h1>Input states, MSET estimates and detected anomalies</h1>
+<div class="legend">
+  <span class="swatch" style="background:#9ecae1"></span>healthy training data &nbsp;
+  <span class="swatch" style="background:#31688e"></span>input (colour = ||residual||) &nbsp;
+  <span class="swatch" style="background:#7f7f7f"></span>MSET estimate (triangle) &nbsp;
+  <span class="swatch" style="background:#d62728"></span>anomaly (SPRT fault, X) &nbsp;
+  <span class="swatch" style="background:#ff7f0e"></span>current time (ring)
+</div>
+<div class="container">
+  <div class="left">
+    <canvas id="chart3d" width="900" height="540"></canvas>
+    <div class="hint">rotate: drag &middot; zoom: scroll &middot; click a point to inspect</div>
+    <div id="sprtTitle"></div>
+    <canvas id="chartSprt" width="900" height="220"></canvas>
+    <div style="margin-top:10px;">
+      <label for="timeSlider" style="font-size:12px;color:#444;">time index</label>
+      <input type="range" id="timeSlider" min="0" max="1" step="1" value="0">
+    </div>
+  </div>
+  <div class="right">
+    <div class="box">
+      <div class="box-title">layers</div>
+      <label><input type="checkbox" id="chk_training" checked> training data</label>
+      <label><input type="checkbox" id="chk_estimates" checked> MSET estimates</label>
+      <label><input type="checkbox" id="chk_residuals" checked> residual lines</label>
+      <label><input type="checkbox" id="chk_anomalies" checked> anomalies</label>
+      <label><input type="checkbox" id="chk_trajectory" checked> trajectory</label>
+    </div>
+    <div class="box">
+      <div class="box-title">SPRT channel</div>
+      <div id="channelRadios"></div>
+    </div>
+    <div class="box">
+      <div class="box-title">sample info</div>
+      <div id="infoPanel"></div>
+    </div>
+  </div>
+</div>
+<script>
+const DATA = {"title": "MSET input & anomalies (3D) + SPRT fault detection", "timeLabel": "Time (days)", "paramNames": ["Temperature [degC]", "Rel. humidity [%]", "Vibration [g]"], "k": 36, "times": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36], "objX": [54.9349681242379, 59.09362285005311, 59.31131744632333, 56.98149667484116, 53.173809110484214, 50.88493009836251, 51.72908874334363, 55.212918875220375, 58.14908837777779, 59.070862288537356, 56.86911564505259, 54.24552247041272, 51.36150271026925, 52.44951396327231, 54.841631217100485, 57.366879417187306, 58.6443615726726, 57.571446835087954, 53.91058748769908, 51.88596855090569, 52.85665223920682, 56.409946949519394, 60.01806632375918, 60.43393611713799, 58.69281371789379, 56.01010789198105, 52.63965227809756, 54.49212574468915, 57.95550531377266, 60.5840079150785, 62.383763245420774, 59.54207872250775, 56.33058303960032, 54.83253244188145, 55.45015623430832, 59.373794214227885], "objY": [44.525897491328195, 49.31167458346386, 50.764564225619374, 47.28487674466379, 43.348085696482045, 39.1696024371992, 40.72211641637554, 45.71746318404068, 49.33035036174057, 51.12933543750096, 48.86470726211148, 42.0658726732494, 38.271514734221334, 40.229882335191455, 45.810905165280786, 50.065446699903376, 50.06611842748684, 49.6501598804029, 43.287917574739055, 41.05502500228149, 40.98437253808961, 46.423831211443826, 53.09050577087058, 54.84879859078131, 49.29010654805738, 45.65057328236388, 42.884787712592356, 43.855670757506154, 49.33156892367517, 53.850775502062525, 55.85052185970935, 51.86186331204674, 46.16353204413042, 43.70060598933504, 47.07867912064333, 50.86695418664819], "objZ": [0.7986337722164177, 0.8814452412581356, 0.8991775625706451, 0.8394562045615944, 0.7599556125818578, 0.6992742545232989, 0.7263088471290073, 0.7970904716137867, 0.8819299946005279, 0.8990107415039488, 0.8484792217239391, 0.7678203040677654, 0.7028074678528323, 0.7191153836471766, 0.7897582110350511, 0.8869855615585553, 0.9269782873195082, 0.8701962190885539, 0.7765630083131456, 0.7354874879331549, 0.7608501970463747, 0.8484951025076343, 0.9404529560968802, 0.9743038064812727, 0.9264126346783067, 0.842890341701552, 0.7848851434217247, 0.8151383553132371, 0.915003852904872, 0.9894802015921789, 1.0213171329781368, 0.9695280791789884, 0.8844796135684807, 0.8373441121386677, 0.8823491498493184, 0.9623150966214831], "estX": [55.04539521626324, 57.85183527938759, 59.08791943320297, 56.227500346592436, 53.47590515892512, 51.00891904340575, 51.87836056683907, 55.10904907694673, 57.768790683218434, 59.23625763673392, 56.676920224578616, 53.842451090743836, 51.30638438296769, 52.15800113783229, 54.8618930338582, 57.35977976589034, 57.26525323574446, 57.389982764120276, 54.030675503920875, 52.17592310967662, 52.985501573969735, 55.90919081387039, 56.16665596685871, 54.86395894705123, 57.01131839965346, 55.54754026838859, 53.452443296942356, 54.69564077541586, 57.12140431390662, 54.69466929403016, 53.78058073075571, 55.55660554510874, 55.68605220434595, 54.75077438081852, 55.504810620651064, 55.84092645509824], "estY": [43.932747958474245, 49.07704724744359, 50.63924113937049, 47.33602039073373, 42.06223311239616, 39.04778637149935, 40.38491524748764, 44.43535656097307, 49.27649180327305, 51.24610741578111, 48.295348106626086, 42.28190328996526, 38.46834956381351, 40.19940819294862, 44.05820727402012, 49.05579694760765, 48.38909100071477, 49.039579210590965, 42.635879335265166, 40.6710727137999, 41.386862913328834, 46.66125981692541, 46.886378232911184, 44.779402692545915, 47.90125885693916, 45.823353663598624, 42.10181216395887, 43.69563079646921, 48.274118100316166, 44.44131609042116, 42.91967133501808, 45.81137682452048, 46.09508874070125, 44.03426299398434, 45.96606241459586, 46.2027012105475], "estZ": [0.7884099133460416, 0.864142900294226, 0.8956374349787224, 0.8341064398459596, 0.7598096910212194, 0.7009115789482545, 0.7283472625269878, 0.7931181652387675, 0.864797228147753, 0.901212076183157, 0.8488887075319611, 0.7647290729462459, 0.7027783883105116, 0.7266092042044633, 0.7875383110175812, 0.8585567265524592, 0.8563033832997422, 0.858977201041033, 0.7693337823419969, 0.7343717556285525, 0.750424970275405, 0.8248865477532394, 0.8277938039604065, 0.7950557913876376, 0.8492085621655268, 0.8123128959316752, 0.7598060417887618, 0.7838942450634726, 0.8522609705912548, 0.7907491459948602, 0.767476535945698, 0.8128959566234033, 0.8184918036524779, 0.7878792740589936, 0.8145968788366899, 0.8200808116817586], "residualNorm": [0.06511369438449126, 0.17015610611864027, 0.032687100291535584, 0.09338973641660825, 0.09581314959008899, 0.01870476675020313, 0.030871149303394418, 0.09140131472522245, 0.09365538318142141, 0.02373568417756935, 0.045535316449631415, 0.0523730957075058, 0.015095314397641179, 0.04991890275867863, 0.12153714317594934, 0.15275312464688706, 0.39308589591109894, 0.07156358151920067, 0.05853753116700715, 0.04385022629535581, 0.0590916267213017, 0.12868446363924144, 0.826940984002835, 1.2874400289482875, 0.43067527352890655, 0.15665864517974606, 0.16327474957495372, 0.151719416848942, 0.3242825161603406, 1.3477160138959172, 1.8217686934413988, 0.9799801373123941, 0.32468872685063943, 0.23778930508960835, 0.3329481893152171, 0.8619505129902048], "anomalyMask": [false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, true, false, false, false, false, false, true, true, true, false, false, true, true, true, true, true, true, true, true, true], "trainX": [58.516908818912796, 53.27061016408339, 50.940314561899086, 51.194889191214436, 50.90509897042294, 51.74038370872912, 58.375144595664416, 59.184675757312974, 56.735440535563335, 55.4734176697037, 59.15481266535423, 52.014271564854575, 59.30615755774549, 56.213678525577095, 54.44348742568308, 58.153832373375, 56.884617074135114, 52.620985613572486, 54.232228107525465, 57.64193954016615, 58.63861538558667, 56.36830078817747, 52.64337112284397, 52.09299444711878, 54.893414221927074, 57.95759497590185, 58.78142532537529, 57.21874356486002, 52.21324843570982, 51.25305920494656, 54.668735370694485, 57.79254586530977, 58.84820815877385, 56.75339815417765, 53.45904065894804, 51.10034624239644, 55.47672713208157, 53.23424748548526, 50.90624569136719, 51.85368360293229, 57.9217655839936, 57.38398806134757, 53.47460412676656, 51.50505916926655, 52.56253814939709, 54.816667651236855, 58.482249634591156, 59.07256232257071, 56.336398376140025, 53.61173908907917, 51.7360408043253, 55.58018981974782, 57.96723546826606, 56.88066768960028, 53.08091450151185, 51.016367527991065, 51.44747058950513, 54.62372382944653, 57.9154135004665, 58.33815310827693], "trainY": [52.624352141053826, 41.71041905366128, 38.14509789319065, 38.88436620699446, 38.954872979733885, 40.29624581399236, 50.244397387281474, 50.762304577470104, 48.229134768455054, 43.85189732084217, 51.106903582951674, 38.315438001659835, 51.126820439443044, 48.29909539480512, 43.5121768080497, 50.69189504011289, 46.364931117967984, 39.527092366159025, 45.524938844163486, 49.923129600000465, 50.64597426278021, 47.24426597974686, 42.85508875799928, 40.51547099706125, 45.34954146372803, 50.70021024396384, 50.562134799596485, 47.77893066360161, 40.82620511646873, 39.02862469408001, 45.239936609527774, 49.596122339686524, 50.80464264088903, 48.490750710158174, 43.22870488513602, 38.62685505884682, 44.981628227874275, 41.80750132524244, 39.872756674482495, 41.8883762434092, 50.46742583159408, 47.423615043856856, 42.67110050538756, 39.052714367343285, 40.17158767995751, 45.69200052689699, 49.52992893678286, 50.09255078437178, 48.3640366757207, 42.3604961424089, 40.362153838909165, 44.80184342750999, 48.41538241052301, 46.84443947001264, 41.77409557969875, 39.32213429489755, 39.16567746729289, 45.29956465837495, 49.13918338654658, 50.00112158237472], "trainZ": [0.8896701377930485, 0.7577634211175098, 0.7052895195132005, 0.706940444352684, 0.6974537915187581, 0.7267872850060093, 0.8748214080266915, 0.8998182242583137, 0.8547626631170966, 0.7908280079728764, 0.9048814371004822, 0.6957011909347948, 0.8946160947521034, 0.8359294395308514, 0.787949142922898, 0.8829206019927096, 0.8458182289143412, 0.719622636606045, 0.8087604871199057, 0.8755444395146945, 0.8943155698486821, 0.8505221203078865, 0.7510987367441283, 0.7145335503133418, 0.8129998621923987, 0.8944279444991453, 0.8946644878064527, 0.8394876048847301, 0.760118681382256, 0.7352882636199429, 0.788983171651296, 0.8669263496345138, 0.8943339078210369, 0.8500655916972063, 0.761050102396233, 0.712269142001447, 0.8020414243131305, 0.7630034588033593, 0.7128244437773814, 0.7262480268931502, 0.8786049900186977, 0.8417164835888923, 0.7534776040116662, 0.7008095305433936, 0.7196107199905084, 0.7978870631488174, 0.8798104060515817, 0.9018933949905872, 0.8358204869057588, 0.7580954403270126, 0.7222486686438685, 0.8085743325242687, 0.8866790848875179, 0.8417383981602725, 0.7706988196357246, 0.7054129577798899, 0.7344691770905006, 0.8074654003379595, 0.8754612893237338, 0.8974750938759878], "channels": ["Temperature [degC]", "Rel. humidity [%]", "Vibration [g]", "||R|| norm"], "sprt": [{"mu0": -0.008149763349066877, "sigma": 0.045759093625572136, "upper": 4.59511985013459, "lower": -4.59511985013459, "llrPos": [-3.103937214109374, -16.760377047576597, -10.304183597517458, -14.444901979521124, -6.203298128602798, -2.998102324543927, -5.798900442549435, -4.776281523481248, -11.528607755192727, -2.674972284773332, -8.140535166711857, -7.111210701890231, -8.990951405630149, -6.240622644984194, -8.402694829525476, -4.021100221560673, -18.74917297372066, -9.976936713856517, -7.623664502174275, -1.7029288421770732, -4.66310133452558, -7.873529490314104, -38.616707353632634, -47.433053373570345, -17.08786036606349, -7.575511442865838, -2.2179027904426447, -4.595394164198452, -10.474908287523542, -54.52042733156067, -71.10378275319283, -35.06779584859486, -8.995528042795318, -9.198844329773163, -8.13429981012059, -31.53572361657307], "llrNeg": [-5.896062785890628, 0.06131998333263322, -3.229616269284502, -2.3798341398979708, -9.771655861429766, -6.001897675456075, -10.794321732129085, -4.223718476518754, -6.290230571460619, -6.32502771522667, -8.129556968196068, -1.8887892981097707, -6.492957742614213, -2.759377355015808, -7.951802375624922, -4.978899778439329, 1.1329529020253988, -2.4852302342526764, -8.456685582212994, -7.297071157822929, -10.634947357786086, -1.1264705096858978, 23.895116993812145, 38.43305337357034, 8.08786036606349, -1.4244885571341637, -12.80170561682611, -11.217628476378785, 1.4749082875235395, 42.40021576894962, 62.10378275319283, 26.067795848594866, -0.004471957204685084, -4.400747477566114, -9.861567517580117, 22.535723616573065], "faultIndices": [22, 23, 24, 29, 30, 31, 35]}, {"mu0": -0.02039496254113677, "sigma": 0.037658563743267114, "upper": 4.59511985013459, "lower": -4.59511985013459, "llrPos": [-6.138711949339334, -8.761284813070155, -3.5647858282771403, -6.158672437174854, -9.949882717140165, -8.140610463564933, -9.325633985014967, -9.92927287991659, -7.7667162464745525, -2.2328072390086318, -8.24062732837891, -1.68669787716145, -3.4790087188111833, -6.521946805679166, -12.5184107243797, -13.02536705155072, -16.697200573178307, -6.234616016032366, -11.057830541538612, -4.987733299774406, -5.25593805231603, -1.5689686580846085, -38.57862207909821, -58.27590561694466, -10.516549690022782, -6.5197754392953415, -7.183112376074026, -8.350913842886177, -8.69324307588489, -59.240132486545534, -74.01929263731691, -36.164338420446455, -3.251839948833082, -4.29137126534968, -13.28813054360771, -28.53744457799086], "llrNeg": [-2.8612880506606664, -7.695123087725101, -5.435214171722858, -11.001233241236875, 0.9498827171401644, -4.5046266694294905, -8.774112534549111, 0.9292728799165901, -4.899130723743446, -6.767192760991367, -7.587299760764313, -7.313302122838548, -11.802809008484857, -10.552181763266606, 3.5184107243797014, 2.948657925795833, 6.05073864883955, -2.765383983967635, -5.302673292563613, -4.012266700225594, -12.351448498044153, -7.43103134191539, 23.414533570879012, 49.275905616944655, 1.5165496900227813, -5.558794720816466, -1.8168876239259746, -7.061093631174386, -0.30675692411510935, 45.33825571229583, 65.01929263731691, 27.16433842044646, -5.748160051166917, -12.555588533617989, -4.598360571876558, 19.53744457799086], "faultIndices": [16, 22, 23, 29, 30, 31, 35]}, {"mu0": -0.03495738760443863, "sigma": 0.04580823767596205, "upper": 4.59511985013459, "lower": -4.59511985013459, "llrPos": [-5.411524643227125, -12.222784218585055, -3.318973980079969, -7.2045113370400085, -2.256311855329588, -3.9543229031837677, -5.526759904652929, -3.4542810355987807, -11.02885481124348, -1.5214300360826956, -3.60385428145496, -6.782287212277755, -2.219730815080053, -2.0841829787021884, -4.9898185148305965, -11.111160564884585, -28.932730738493223, -5.72309028064053, -9.06908120751239, -2.5599413746597754, -8.034510523473465, -9.602021400392823, -42.07720985924556, -58.32981166848091, -26.381770847916048, -11.783850218504877, -14.657541843809277, -16.587690189387438, -21.854243950072668, -64.42958552646567, -81.68334733576438, -51.24920071083757, -22.870169803963037, -17.697137820356495, -23.422589415706597, -46.7415083163095], "llrNeg": [-3.588475356772877, -4.9608109883224145, -5.681026019920034, -9.709582493174551, -6.743688144670414, -11.897108802280412, -12.022682848665431, -5.545718964401221, -6.020546074489893, -7.478569963917306, -11.512695604762328, -10.416686919311797, -6.780269184919949, -13.730667686512458, -10.689484314006183, 2.1111605648845813, 17.44877145324321, -3.2769097193594723, -7.802948361981675, -6.440058625340226, -8.120550701320903, 0.6020214003928211, 29.0841114095038, 49.32981166848089, 17.381770847916044, 2.783850218504875, 3.8462722121795574, 6.838842551432402, 12.854243950072666, 55.42958552646567, 72.68334733576437, 42.249200710837556, 13.870169803963037, 8.697137820356494, 14.422589415706593, 37.74150831630949], "faultIndices": [16, 22, 23, 24, 27, 28, 29, 30, 31, 32, 33, 34, 35]}, {"mu0": 0.07447799601972112, "sigma": 0.04101812094715329, "upper": 4.59511985013459, "lower": -4.59511985013459, "llrPos": [-5.1848900987415725, -2.0973753491964504, -9.653894865194847, -3.116825444935481, -6.056406312290019, -8.579165109102009, -12.284455127523966, -7.857375288848745, -3.097396463889122, -11.308608289574181, -6.616821460986381, -10.711837032817925, -8.843154702180563, -10.891332794117359, -5.653288820122901, 1.2249181693145066, 20.02739223694897, -4.713155632185734, -10.260980046893817, -6.7400662695269755, -10.220454381053948, -0.5354253412028388, 49.998518482252756, 84.21411012400954, 21.551701244537824, 1.5105617172886405, 3.505014766683767, 4.654329194963169, 13.7703045170544, 88.6225996078614, 123.29405714412245, 61.726983614824704, 13.80001411960949, 7.444328894072943, 14.404098042070414, 53.09448498275018], "llrNeg": [-3.815109901258428, -15.312854402196567, -6.038600334136195, -5.88317455506452, -10.655538982780053, -0.4208348908979911, -1.7314996135086158, -7.469244174794461, -5.902603536110878, -5.383908024449532, -2.383178539013619, -5.266461356330284, -0.15684529781943846, -2.8606323538366705, -10.80246338384836, -10.224918169314508, -32.39759391776905, -4.2868443678142665, -7.6209841710550394, -2.2599337304730254, -5.6345991995536675, -8.464574658797162, -64.1290636735902, -93.21411012400954, -30.551701244537824, -10.51056171728864, -15.589572899529717, -14.74443427841399, -22.770304517054402, -97.6225996078614, -132.29405714412243, -70.7269836148247, -22.80001411960949, -16.444328894072942, -23.404098042070416, -62.09448498275019], "faultIndices": [16, 22, 23, 24, 27, 28, 29, 30, 31, 32, 33, 34, 35]}]};
+(function(){
+  const state = {
+    rotX: -0.32, rotY: 0.55, zoom: 1.0,
+    cursor: DATA.k - 1,
+    channel: DATA.channels.length - 1,
+    layers: {training:true, estimates:true, residuals:true, anomalies:true, trajectory:true},
+    dragging:false, moved:false, lastX:0, lastY:0, downX:0, downY:0
+  };
+
+  const c3d = document.getElementById('chart3d');
+  const ctx3d = c3d.getContext('2d');
+  const cSprt = document.getElementById('chartSprt');
+  const ctxSprt = cSprt.getContext('2d');
+  const slider = document.getElementById('timeSlider');
+  const info = document.getElementById('infoPanel');
+  const sprtTitle = document.getElementById('sprtTitle');
+
+  slider.min = 0; slider.max = DATA.k - 1; slider.value = state.cursor;
+
+  /* ---- build the SPRT channel radio buttons (count is data-dependent) --- */
+  const radioHost = document.getElementById('channelRadios');
+  DATA.channels.forEach((name, i) => {
+    const label = document.createElement('label');
+    const input = document.createElement('input');
+    input.type = 'radio'; input.name = 'sprtChannel'; input.id = 'chan_' + i;
+    if (i === state.channel) input.checked = true;
+    input.addEventListener('change', () => { state.channel = i; redrawSPRT(); });
+    label.appendChild(input);
+    label.appendChild(document.createTextNode(' ' + name));
+    radioHost.appendChild(label);
+  });
+
+  /* ---- bounds + normalisation into a [-1,1]^3 cube ---- */
+  const allX = DATA.objX.concat(DATA.trainX, DATA.estX);
+  const allY = DATA.objY.concat(DATA.trainY, DATA.estY);
+  const allZ = DATA.objZ.concat(DATA.trainZ, DATA.estZ);
+  const lo = [Math.min(...allX), Math.min(...allY), Math.min(...allZ)];
+  const hi = [Math.max(...allX), Math.max(...allY), Math.max(...allZ)];
+  function norm3(x, y, z) {
+    return [
+      2*(x-lo[0])/((hi[0]-lo[0])||1) - 1,
+      2*(y-lo[1])/((hi[1]-lo[1])||1) - 1,
+      2*(z-lo[2])/((hi[2]-lo[2])||1) - 1
+    ];
+  }
+
+  function project(p) {
+    const cy = Math.cos(state.rotY), sy = Math.sin(state.rotY);
+    const cx = Math.cos(state.rotX), sx = Math.sin(state.rotX);
+    let x = p[0]*cy - p[2]*sy;
+    let z = p[0]*sy + p[2]*cy;
+    let y = p[1]*cx - z*sx;
+    z    = p[1]*sx + z*cx;
+    const scale = 150 * state.zoom;
+    const persp = 1 / (1 + (z + 2) * 0.12);
+    return {
+      x: c3d.width/2 + x*scale*persp,
+      y: c3d.height/2 + 30 - y*scale*persp,
+      depth: z
+    };
+  }
+
+  const VIRIDIS = [[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]];
+  function colorRamp(v, vmin, vmax) {
+    let t = (v - vmin) / ((vmax - vmin) || 1);
+    t = Math.max(0, Math.min(1, t));
+    const seg = t * (VIRIDIS.length - 1);
+    const i = Math.min(VIRIDIS.length - 2, Math.floor(seg));
+    const f = seg - i, a = VIRIDIS[i], b = VIRIDIS[i+1];
+    const r = Math.round(a[0]+(b[0]-a[0])*f);
+    const g = Math.round(a[1]+(b[1]-a[1])*f);
+    const bl= Math.round(a[2]+(b[2]-a[2])*f);
+    return `rgb(${r},${g},${bl})`;
+  }
+
+  function drawAxes() {
+    const O = project(norm3(lo[0], lo[1], lo[2]));
+    const X = project(norm3(hi[0], lo[1], lo[2]));
+    const Y = project(norm3(lo[0], hi[1], lo[2]));
+    const Z = project(norm3(lo[0], lo[1], hi[2]));
+    ctx3d.strokeStyle = '#aaa'; ctx3d.lineWidth = 1;
+    ctx3d.font = '11px sans-serif'; ctx3d.fillStyle = '#444';
+    [[O,X,DATA.paramNames[0]],[O,Y,DATA.paramNames[1]],[O,Z,DATA.paramNames[2]]].forEach(([a,b,label]) => {
+      ctx3d.beginPath(); ctx3d.moveTo(a.x,a.y); ctx3d.lineTo(b.x,b.y); ctx3d.stroke();
+      ctx3d.fillText(label, b.x+4, b.y+4);
+    });
+  }
+
+  function redraw3D() {
+    ctx3d.clearRect(0, 0, c3d.width, c3d.height);
+    drawAxes();
+
+    const items = [];
+
+    if (state.layers.training) {
+      for (let i = 0; i < DATA.trainX.length; ++i) {
+        const P = project(norm3(DATA.trainX[i], DATA.trainY[i], DATA.trainZ[i]));
+        items.push({type:'dot', p:P, r:2.4, color:'rgba(158,202,225,0.55)', depth:P.depth});
+      }
+    }
+
+    if (state.layers.trajectory) {
+      ctx3d.strokeStyle = 'rgba(120,120,120,0.55)'; ctx3d.lineWidth = 1;
+      ctx3d.beginPath();
+      for (let i = 0; i < DATA.k; ++i) {
+        const P = project(norm3(DATA.objX[i], DATA.objY[i], DATA.objZ[i]));
+        if (i === 0) ctx3d.moveTo(P.x, P.y); else ctx3d.lineTo(P.x, P.y);
+      }
+      ctx3d.stroke();
+    }
+
+    if (state.layers.residuals) {
+      for (let i = 0; i < DATA.k; ++i) {
+        const A = project(norm3(DATA.objX[i], DATA.objY[i], DATA.objZ[i]));
+        const B = project(norm3(DATA.estX[i], DATA.estY[i], DATA.estZ[i]));
+        items.push({type:'line', a:A, b:B, color:'rgba(127,127,127,0.55)', depth:(A.depth+B.depth)/2});
+      }
+    }
+
+    if (state.layers.estimates) {
+      for (let i = 0; i < DATA.k; ++i) {
+        const P = project(norm3(DATA.estX[i], DATA.estY[i], DATA.estZ[i]));
+        items.push({type:'tri', p:P, color:'#7f7f7f', depth:P.depth});
+      }
+    }
+
+    const vmin = Math.min(...DATA.residualNorm), vmax = Math.max(...DATA.residualNorm);
+    for (let i = 0; i < DATA.k; ++i) {
+      if (DATA.anomalyMask[i]) continue;
+      const P = project(norm3(DATA.objX[i], DATA.objY[i], DATA.objZ[i]));
+      items.push({type:'dot', p:P, r:5, color:colorRamp(DATA.residualNorm[i], vmin, vmax), depth:P.depth});
+    }
+
+    if (state.layers.anomalies) {
+      for (let i = 0; i < DATA.k; ++i) {
+        if (!DATA.anomalyMask[i]) continue;
+        const P = project(norm3(DATA.objX[i], DATA.objY[i], DATA.objZ[i]));
+        items.push({type:'x', p:P, color:'#d62728', depth:P.depth});
+      }
+    }
+
+    items.sort((a, b) => a.depth - b.depth);
+    items.forEach(it => {
+      if (it.type === 'dot') {
+        ctx3d.beginPath(); ctx3d.arc(it.p.x, it.p.y, it.r, 0, 2*Math.PI);
+        ctx3d.fillStyle = it.color; ctx3d.fill();
+      } else if (it.type === 'tri') {
+        ctx3d.beginPath();
+        ctx3d.moveTo(it.p.x, it.p.y-5); ctx3d.lineTo(it.p.x-5, it.p.y+4); ctx3d.lineTo(it.p.x+5, it.p.y+4);
+        ctx3d.closePath(); ctx3d.fillStyle = it.color; ctx3d.fill();
+      } else if (it.type === 'line') {
+        ctx3d.strokeStyle = it.color; ctx3d.lineWidth = 1;
+        ctx3d.beginPath(); ctx3d.moveTo(it.a.x, it.a.y); ctx3d.lineTo(it.b.x, it.b.y); ctx3d.stroke();
+      } else if (it.type === 'x') {
+        ctx3d.strokeStyle = it.color; ctx3d.lineWidth = 2.4;
+        ctx3d.beginPath();
+        ctx3d.moveTo(it.p.x-6, it.p.y-6); ctx3d.lineTo(it.p.x+6, it.p.y+6);
+        ctx3d.moveTo(it.p.x+6, it.p.y-6); ctx3d.lineTo(it.p.x-6, it.p.y+6);
+        ctx3d.stroke();
+      }
+    });
+
+    const ci = state.cursor;
+    const CP = project(norm3(DATA.objX[ci], DATA.objY[ci], DATA.objZ[ci]));
+    ctx3d.beginPath(); ctx3d.arc(CP.x, CP.y, 11, 0, 2*Math.PI);
+    ctx3d.strokeStyle = '#ff7f0e'; ctx3d.lineWidth = 2.5; ctx3d.stroke();
+
+    updateInfo();
+  }
+
+  function pickIndex(mx, my) {
+    let best = -1, bestD = 1e18;
+    for (let i = 0; i < DATA.k; ++i) {
+      const P = project(norm3(DATA.objX[i], DATA.objY[i], DATA.objZ[i]));
+      const d = Math.hypot(P.x - mx, P.y - my);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return bestD < 16 ? best : -1;
+  }
+
+  function setCursor(i) {
+    state.cursor = Math.max(0, Math.min(DATA.k - 1, i));
+    slider.value = state.cursor;
+    redraw3D();
+    redrawSPRT();
+  }
+
+  c3d.addEventListener('mousedown', e => {
+    const rect = c3d.getBoundingClientRect();
+    state.dragging = true; state.moved = false;
+    state.downX = e.clientX - rect.left; state.downY = e.clientY - rect.top;
+    state.lastX = state.downX; state.lastY = state.downY;
+  });
+  window.addEventListener('mousemove', e => {
+    if (!state.dragging) return;
+    const rect = c3d.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    if (Math.hypot(mx - state.downX, my - state.downY) > 3) state.moved = true;
+    const dx = mx - state.lastX, dy = my - state.lastY;
+    state.rotY += dx * 0.008; state.rotX += dy * 0.008;
+    state.lastX = mx; state.lastY = my;
+    redraw3D();
+  });
+  window.addEventListener('mouseup', e => {
+    if (state.dragging && !state.moved) {
+      const rect = c3d.getBoundingClientRect();
+      const idx = pickIndex(e.clientX - rect.left, e.clientY - rect.top);
+      if (idx >= 0) setCursor(idx);
+    }
+    state.dragging = false;
+  });
+  c3d.addEventListener('wheel', e => {
+    e.preventDefault();
+    state.zoom *= (e.deltaY < 0 ? 1.08 : 0.93);
+    state.zoom = Math.max(0.3, Math.min(3.5, state.zoom));
+    redraw3D();
+  }, {passive:false});
+
+  const PAD_L = 46, PAD_R = 12, PAD_T = 24, PAD_B = 28;
+  function redrawSPRT() {
+    ctxSprt.clearRect(0, 0, cSprt.width, cSprt.height);
+    const ch = DATA.sprt[state.channel];
+    const W = cSprt.width, H = cSprt.height;
+    const tmin = DATA.times[0], tmax = DATA.times[DATA.k - 1];
+    const allVals = ch.llrPos.concat(ch.llrNeg, [ch.upper, ch.lower, 0]);
+    const vmin = Math.min(...allVals), vmax = Math.max(...allVals);
+    const X = t => PAD_L + (t - tmin) / ((tmax - tmin) || 1) * (W - PAD_L - PAD_R);
+    const Y = v => H - PAD_B - (v - vmin) / ((vmax - vmin) || 1) * (H - PAD_T - PAD_B);
+
+    if (state.layers.anomalies) {
+      ctxSprt.fillStyle = 'rgba(214,39,40,0.09)';
+      for (let i = 0; i < DATA.k; ++i) {
+        if (!DATA.anomalyMask[i]) continue;
+        const x = X(DATA.times[i]);
+        ctxSprt.fillRect(x - 3, PAD_T, 6, H - PAD_T - PAD_B);
+      }
+    }
+
+    ctxSprt.strokeStyle = '#333'; ctxSprt.lineWidth = 1;
+    ctxSprt.strokeRect(PAD_L, PAD_T, W - PAD_L - PAD_R, H - PAD_T - PAD_B);
+    ctxSprt.fillStyle = '#333'; ctxSprt.font = '10px monospace';
+    ctxSprt.fillText(vmax.toFixed(1), 4, Y(vmax) + 3);
+    ctxSprt.fillText(vmin.toFixed(1), 4, Y(vmin) + 3);
+    ctxSprt.fillText(String(Math.round(tmin)), PAD_L - 6, H - 8);
+    ctxSprt.fillText(String(Math.round(tmax)), W - PAD_R - 22, H - 8);
+    ctxSprt.fillText(DATA.timeLabel, (W + PAD_L - PAD_R) / 2 - 18, H - 6);
+
+    ctxSprt.setLineDash([5, 4]);
+    ctxSprt.strokeStyle = '#d62728';
+    ctxSprt.beginPath(); ctxSprt.moveTo(PAD_L, Y(ch.upper)); ctxSprt.lineTo(W - PAD_R, Y(ch.upper)); ctxSprt.stroke();
+    ctxSprt.strokeStyle = '#666';
+    ctxSprt.beginPath(); ctxSprt.moveTo(PAD_L, Y(ch.lower)); ctxSprt.lineTo(W - PAD_R, Y(ch.lower)); ctxSprt.stroke();
+    ctxSprt.setLineDash([]);
+
+    function poly(vals, color) {
+      ctxSprt.strokeStyle = color; ctxSprt.lineWidth = 1.6;
+      ctxSprt.beginPath();
+      for (let i = 0; i < DATA.k; ++i) {
+        const x = X(DATA.times[i]), y = Y(vals[i]);
+        if (i === 0) ctxSprt.moveTo(x, y); else ctxSprt.lineTo(x, y);
+      }
+      ctxSprt.stroke();
+    }
+    poly(ch.llrPos, '#1f77b4');
+    poly(ch.llrNeg, '#2ca02c');
+
+    ctxSprt.strokeStyle = '#d62728'; ctxSprt.lineWidth = 2.2;
+    ch.faultIndices.forEach(i => {
+      const x = X(DATA.times[i]), y = Y(Math.max(ch.llrPos[i], ch.llrNeg[i]));
+      ctxSprt.beginPath();
+      ctxSprt.moveTo(x-5,y-5); ctxSprt.lineTo(x+5,y+5);
+      ctxSprt.moveTo(x+5,y-5); ctxSprt.lineTo(x-5,y+5);
+      ctxSprt.stroke();
+    });
+
+    const cx = X(DATA.times[state.cursor]);
+    ctxSprt.strokeStyle = '#ff7f0e'; ctxSprt.lineWidth = 2;
+    ctxSprt.beginPath(); ctxSprt.moveTo(cx, PAD_T); ctxSprt.lineTo(cx, H - PAD_B); ctxSprt.stroke();
+
+    sprtTitle.textContent = 'SPRT fault detection - channel: ' + DATA.channels[state.channel] +
+      '   (mu0=' + ch.mu0.toFixed(4) + ', sigma=' + ch.sigma.toFixed(4) +
+      ', alarms=' + ch.faultIndices.length + ')';
+  }
+
+  cSprt.addEventListener('click', e => {
+    const rect = cSprt.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const tmin = DATA.times[0], tmax = DATA.times[DATA.k - 1];
+    const t = tmin + (mx - PAD_L) / (cSprt.width - PAD_L - PAD_R) * (tmax - tmin);
+    let best = 0, bestD = Infinity;
+    for (let i = 0; i < DATA.k; ++i) {
+      const d = Math.abs(DATA.times[i] - t);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    setCursor(best);
+  });
+
+  slider.addEventListener('input', () => setCursor(parseInt(slider.value, 10)));
+
+  ['training','estimates','residuals','anomalies','trajectory'].forEach(name => {
+    document.getElementById('chk_' + name).addEventListener('change', e => {
+      state.layers[name] = e.target.checked;
+      redraw3D(); redrawSPRT();
+    });
+  });
+
+  function updateInfo() {
+    const i = state.cursor;
+    const ch = DATA.sprt[state.channel];
+    const names = [DATA.paramNames[0], DATA.paramNames[1], DATA.paramNames[2]];
+    const obs = [DATA.objX[i], DATA.objY[i], DATA.objZ[i]];
+    const est = [DATA.estX[i], DATA.estY[i], DATA.estZ[i]];
+    const lines = [];
+    lines.push('sample  #' + (i+1) + '/' + DATA.k);
+    lines.push('time    ' + DATA.times[i]);
+    lines.push('status  ' + (DATA.anomalyMask[i] ? 'ANOMALY' : 'healthy'));
+    lines.push('||R||   ' + DATA.residualNorm[i].toFixed(4));
+    lines.push('');
+    for (let j = 0; j < 3; ++j) {
+      lines.push(names[j].slice(0,12).padEnd(12) + ' obs ' + obs[j].toFixed(3));
+      lines.push(''.padEnd(12) + ' est ' + est[j].toFixed(3));
+    }
+    lines.push('');
+    lines.push('SPRT [' + DATA.channels[state.channel].slice(0,14) + ']');
+    lines.push('  LLR+  ' + ch.llrPos[i].toFixed(2));
+    lines.push('  LLR-  ' + ch.llrNeg[i].toFixed(2));
+    info.textContent = lines.join('\n');
+  }
+
+  redraw3D();
+  redrawSPRT();
+})();
+</script>
+</body>
+</html>
